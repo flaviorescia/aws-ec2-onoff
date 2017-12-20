@@ -1,0 +1,68 @@
+#!/bin/bash
+# Elaborado por: flavio.rescia@darede.com.br
+# Em: 04-07-2017
+# Para: Desligar e ligar instancias AWS baseado na TAG=Group
+
+AWS_REGION=us-east-1
+ACTION=$1
+GROUP=$2
+FORCE=$3
+
+#Validando se as opções foram passadas corretamente
+if [[ "$ACTION" == start ]]; then
+        ACTION_DESC="ligar";
+else
+        if [[ "$ACTION" == stop ]]; then
+                ACTION_DESC="desligar";
+        else
+                echo "Use aws-start-stop [start|stop] [tag]"
+                exit 0
+        fi
+fi
+
+#Validando se foi preenchido o valor da TAG Groups
+if [ -z $GROUP ]; then
+        echo "Use aws-start-stop [start|stop] [tag]"
+        exit 0
+fi
+
+#Coletando informacao das instancais com a TAG solicitada
+#Arquivo com id, nome e IP Publico
+aws ec2 describe-instances --output text --region us-east-1 --query 'Reservations[].Instances[].[InstanceId,PublicIpAddress,Tags[?Key==`Name`].Value[]]' --filters "Name=tag-key,Values=$GROUP" | sed '$!N;s/\n/ /' > /tmp/start-stop-instances
+#Separando arquivo apenas com o ID
+cat /tmp/start-stop-instances | awk '{print $1}' > /tmp/start-stop-instances-ids
+
+if [[ ! -s /tmp/start-stop-instances ]]; then
+        echo "Nenhuma instância encontrada com esse nome de TAG"
+        exit 0;
+else
+        # Validacao da flag force, que executa sem a necessidade de confirmacao
+        if [[ "$3" == force ]]; then
+                CONFIRM=s;
+                echo "Flag force ativada, vamos $ACTION_DESC as instâncias abaixo!"
+                cat /tmp/start-stop-instances
+                echo ""
+        else
+                echo "Instancias selecionadas que possuem a TAG $GROUP: [id,IP,Nome]"
+                cat /tmp/start-stop-instances
+                echo
+                echo "Deseja $ACTION_DESC as instâncias listadas acima?(s/n)";
+                read CONFIRM;
+                echo ""
+        fi
+fi
+
+if [[ "$CONFIRM" == s ]] || [[ "$CONFIRM" == sim ]] || [[ "$CONFIRM" == S ]] || [[ "$CONFIRM" == Sim ]] ; then
+        echo "Vamos $ACTION_DESC as instâncias solicitadas..."
+        echo ""
+        for i in `cat /tmp/start-stop-instances-ids` ; do
+                if [[ "$ACTION" == stop ]]; then
+                        aws ec2 stop-instances --region $AWS_REGION --instance-ids $i;
+                else
+                        aws ec2 start-instances --region $AWS_REGION --instance-ids $i;
+                fi
+        done
+else
+        echo "Autorização não confirmada, terminando sem nenhuma ação!"
+        echo ""
+fi
